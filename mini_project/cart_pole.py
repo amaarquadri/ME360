@@ -200,7 +200,9 @@ def main():
         plt.plot(t_vals, state_vals[i, :], label=label)
     plt.xlabel('Time (s)')
     plt.ylabel(r'Position (m), Velocity (m/s), $\theta$ (rad), $\omega$ (rad/s)')
+    plt.title(r'Recovery from $\theta Perturbation of 70 Degrees')
     plt.legend()
+    plt.savefig('theta_perturbation.png')
     plt.show()
 
 
