@@ -127,8 +127,8 @@ def test_controller(t, x, theta, f, x_dot_dot, theta_dot_dot, K, state_0=None, t
     Values must be substituted in.
     """
     if state_0 is None:
-        state_0 = [0, 0, np.radians(70), 0]  # recovery from being tilted 70 degrees
-        # state_0 = [-15, 0, 0, 0]  # recovery from being offset horizontally by 15m
+        # state_0 = [0, 0, np.radians(70), 0]  # recovery from being tilted 70 degrees
+        state_0 = [-15, 0, 0, 0]  # recovery from being offset horizontally by 15m
         # state_0 = [0, 5, 0, 0]  # recovery from being imparted a velocity of 5 m/s
         # state_0 = [0, 0, 0, 30]  # recovery from being imparted an angular velocity of 30 rad/s
 
@@ -196,13 +196,13 @@ def main():
 
     # graph
     t_vals, state_vals = test_controller(t, x, theta, f, x_dot_dot, theta_dot_dot, K)
-    for i, label in enumerate(['x', 'x_dot', 'theta', 'theta_dot']):
+    for i, label in enumerate(['x', 'v', r'$\theta$', r'$\omega$']):
         plt.plot(t_vals, state_vals[i, :], label=label)
     plt.xlabel('Time (s)')
     plt.ylabel(r'Position (m), Velocity (m/s), $\theta$ (rad), $\omega$ (rad/s)')
-    plt.title(r'Recovery from $\theta Perturbation of 70 Degrees')
+    plt.title(r'Recovery from x Perturbation of 15 Meters')
     plt.legend()
-    plt.savefig('theta_perturbation.png')
+    plt.savefig('x_perturbation.png')
     plt.show()
 
 
