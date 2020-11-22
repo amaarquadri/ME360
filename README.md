@@ -11,4 +11,4 @@ The following graphs show some of the results:
 ![Theta Perturbation](/mini_project/theta_perturbation.png)  
 ![x Perturbation](/mini_project/x_perturbation.png)  
 ![v Perturbation](/mini_project/v_perturbation.png)  
-![Omega Perturbation](/mini_project/tomega_perturbation.png)  
+![Omega Perturbation](/mini_project/omega_perturbation.png)  
