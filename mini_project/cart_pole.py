@@ -13,6 +13,19 @@ def to_string(expression):
         .replace(r'\operatorname{Theta}', r'\Theta')
 
 
+def get_gain(s, ratio, zeros, poles, epsilon=0.1):
+    # find a value sufficiently far from all poles and zeros
+    i = 0
+    while any([abs(i - zero) < epsilon for zero, _ in zeros.items()]) or \
+            any([abs(i - pole) < epsilon for pole, _ in poles.items()]):
+        i += 1
+
+    gain = ratio.subs(s, i)
+    gain *= np.product([(i - pole) ** multiplicity for pole, multiplicity in poles.items()])
+    gain /= np.product([(i - zeros) ** multiplicity for zeros, multiplicity in zeros.items()])
+    return sp.re(gain.evalf())
+
+
 def get_cart_pole_physics(constants):
     M, m, L, b, g = constants
 
@@ -41,8 +54,8 @@ def get_cart_pole_physics(constants):
     f_x_external = f - b * sp.diff(x, t)  # dissipative and external forces for the x direction
     f_theta_external = 0
 
-    x_vec = [x, sp.diff(x, t), theta, sp.diff(theta, t)]
-    u_vec = [f]
+    x_vec = np.array([x, sp.diff(x, t), theta, sp.diff(theta, t)])
+    u_vec = np.array([f])
 
     return t, x_vec, u_vec, L, [f_x_external, f_theta_external]
 
@@ -85,14 +98,14 @@ def linearize(t, x_vec, u_vec, expression, operating_point=None):
     # (x_dot = A * x + B * u) is in reference to the primed coordinates.
     # Thus the K gains for the controller will also correspond to the primed coordinates.
     # However, K * (x_r' - x') = K * (x_r - x) so the controller works the same regardless.
-    return sum([sp.diff(expression, var).subs(operating_point) * var for var in x_vec + u_vec])
+    return sum([sp.diff(expression, var).subs(operating_point) * var for var in np.concatenate((x_vec, u_vec))])
 
 
 def get_transfer_functions(t, x_vec, u_vec, equations_of_motion):
     s = sp.symbols('s')
 
-    X_vec = [sp.Function(x.name.capitalize())(s) for x in x_vec[::2]]
-    U_vec = [sp.Function(u.name.capitalize())(s) for u in u_vec]
+    X_vec = np.array([sp.Function(x.name.capitalize())(s) for x in x_vec[::2]])
+    U_vec = np.array([sp.Function(u.name.capitalize())(s) for u in u_vec])
 
     laplace_tf = {}
     for x, X in zip(x_vec[::2], X_vec):
@@ -104,10 +117,29 @@ def get_transfer_functions(t, x_vec, u_vec, equations_of_motion):
 
     laplace_equations = [sp.Eq(sp.diff(x, t), eq).subs(laplace_tf)
                          for x, eq in zip(x_vec[1::2], equations_of_motion[1::2])]
-    result = sp.solve(laplace_equations, X_vec)
+    result = sp.solve(laplace_equations, list(X_vec))  # need to convert to list because sympy doesn't support numpy
 
     laplace_transforms = [sp.simplify(result[X]) for X in X_vec]
     return s, X_vec, U_vec, laplace_transforms
+
+
+def get_controller_transfer_functions(s, X_vec, U_vec, transfer_functions):
+    k_p_mat = np.array([[sp.symbols(f'k_p_{U.name.lower()}_{X.name.lower()}') for X in X_vec] for U in U_vec])
+    k_d_mat = np.array([[sp.symbols(f'k_d_{U.name.lower()}_{X.name.lower()}') for X in X_vec] for U in U_vec])
+
+    X_r_vec = np.array([sp.Function(X.name + '_r')(s) for X in X_vec])
+
+    U_control_vec = np.dot(k_p_mat, (X_r_vec - X_vec)) - np.dot(k_d_mat, s * X_vec)
+
+    eqs = [sp.Eq(X, tf).subs(zip(U_vec, U_control_vec)) for X, tf in zip(X_vec, transfer_functions)]
+    result = sp.solve(eqs, list(X_vec))  # need to convert to array because sympy doesn't support numpy
+    control_tfs = [result[X] for X in X_vec]
+
+    k_pd_mat = np.zeros((len(U_vec), 2 * len(X_vec))).astype(object)
+    k_pd_mat[:, 0::2] = k_p_mat
+    k_pd_mat[:, 1::2] = k_d_mat
+
+    return k_pd_mat, X_r_vec, control_tfs
 
 
 def get_matrix_equations_of_motion(x_vec, u_vec, equations_of_motion):
@@ -130,6 +162,28 @@ def linear_quadratic_regulator(A, B, Q, R):
     # compute the LQR gain
     K = np.linalg.multi_dot([np.linalg.inv(R), B.T, S])
     return K
+
+
+def analyze_controller(s, X_vec, X_r_vec, k_pd_mat, controller_transfer_functions, K):
+    controller_transfer_functions = [tf.subs(zip(k_pd_mat.flatten(), K.flatten()))
+                                     for tf in controller_transfer_functions]
+
+    for i, X_r in enumerate(X_r_vec):
+        print(f'\nSetting all but {X_r} to zero:')
+        # set all others in X_r_vec to zero
+        tfs = [sp.simplify(tf.subs([(X_r_, 0) for X_r_ in X_r_vec if X_r_ is not X_r]) / X_r)
+               for tf in controller_transfer_functions]
+        for X, tf in zip(X_vec, tfs):
+            numerator, denominator = tf.as_numer_denom()
+            zeros = sp.roots(numerator, s)
+            poles = sp.roots(denominator, s)
+            gain = get_gain(s, tf, zeros, poles)
+
+            zeros_description = ', '.join([str(zero) if multiplicity == 1 else f'{zero} (x{multiplicity})'
+                                           for zero, multiplicity in zeros.items()])
+            poles_description = ', '.join([str(pole) if multiplicity == 1 else f'{pole} (x{multiplicity})'
+                                           for pole, multiplicity in poles.items()])
+            print(f'{X}/{X_r}: Gain: {gain}, Poles: {poles_description}, Zeros: {zeros_description}')
 
 
 def test_controller(x_vec, u_vec, equations_of_motion, K, x_r_func=None, x_0=None, t_f=10):
@@ -202,6 +256,12 @@ def build_and_test_controller(constants, physics_func=get_cart_pole_physics, ope
     for var, tf in zip(X_vec, transfer_functions):
         print(to_string(sp.Eq(var, tf)))
 
+    k_pd_mat, X_r_vec, control_transfer_functions = \
+        get_controller_transfer_functions(s, X_vec, U_vec, transfer_functions)
+    print('\nControl Transfer Functions (in Primed Variables):')
+    for var, tf in zip(X_vec, control_transfer_functions):
+        print(to_string(sp.Eq(var, tf)))
+
     A, B = get_matrix_equations_of_motion(x_vec, u_vec, linearized_equations_of_motion)
     print('\nA (in Primed Variables):\n', to_string(A), '\nB (in Primed Variables):\n', to_string(B))
 
@@ -213,6 +273,8 @@ def build_and_test_controller(constants, physics_func=get_cart_pole_physics, ope
         R = np.identity(len(u_vec))
     K = linear_quadratic_regulator(A, B, Q, R)
     print('K:\n', K)
+
+    analyze_controller(s, X_vec, X_r_vec, k_pd_mat, substitute_constants(control_transfer_functions), K)
 
     equations_of_motion = [substitute_constants(eq) for eq in equations_of_motion]
     t_vals, state_vals = test_controller(x_vec, u_vec, equations_of_motion, K, x_r_func=x_r_func, x_0=x_0, t_f=t_f)
