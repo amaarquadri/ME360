@@ -4,28 +4,13 @@ from scipy.linalg import solve_continuous_are
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 from matplotlib import use
+from sympy.physics.vector.printing import vlatex
 use('TkAgg')
 
 
-def to_string(expression, var_strings=None, latex=False):
-    ESCAPE_VARS = ['theta', 'Theta']  # append to this as necessary
-
-    if var_strings is None:
-        var_strings = ['x', 'theta', 'f']
-
-    text = str(expression).replace('**', '^')
-    for var_string in var_strings:
-        new_var_string = f'\\{var_string}' if (latex and (var_string in ESCAPE_VARS)) else var_string
-
-        # must replace var_string at the end since we don't want to replace it within the derivative expressions
-        text = text \
-            .replace(f'Derivative({var_string}(t), t)',
-                     f'$\\dot{{{new_var_string}}}$' if latex else f'{new_var_string}_dot') \
-            .replace(f'Derivative({var_string}(t), (t, 2))',
-                     f'$\\ddot{{{new_var_string}}}$' if latex else f'{new_var_string}_dot_dot') \
-            .replace(f'{var_string}(t)',
-                     f'${new_var_string}$' if latex else new_var_string)
-    return text
+def to_string(expression):
+    return vlatex(expression) \
+        .replace(r'\operatorname{Theta}', r'\Theta')
 
 
 def get_cart_pole_physics(constants):
@@ -191,6 +176,7 @@ def build_and_test_controller(constants, physics_func=get_cart_pole_physics, ope
     :param x_0:
     :param t_f:
     """
+    print('For displaying LaTeX:', 'https://latex.codecogs.com/eqneditor/editor.php')
 
     def substitute_constants(expression):
         return np.vectorize(lambda v: v.subs(constants))(expression)
@@ -201,23 +187,23 @@ def build_and_test_controller(constants, physics_func=get_cart_pole_physics, ope
 
     equations_of_motion = get_equations_of_motion(t, x_vec, lagrangian, F_external_vec)
     print('\nEquations of Motion:')
-    for var, eq in zip(x_vec, equations_of_motion):
-        print(to_string(sp.diff(var, t)), '=', to_string(eq))
+    for var, eq in zip(x_vec[1::2], equations_of_motion[1::2]):
+        print(to_string(sp.Eq(sp.diff(var, t), eq)))
 
     # operating_point = {x_vec[2]: sp.pi}
     linearized_equations_of_motion = [linearize(t, x_vec, u_vec, eq, operating_point) for eq in equations_of_motion]
     print('\nLinearized Equations of Motion (in Primed Variables):')
-    for var, eq in zip(x_vec, linearized_equations_of_motion):
-        print(to_string(sp.diff(var, t)), '=', to_string(eq))
+    for var, eq in zip(x_vec[1::2], linearized_equations_of_motion[1::2]):
+        print(to_string(sp.Eq(sp.diff(var, t), eq)))
 
     s, X_vec, U_vec, transfer_functions = get_transfer_functions(t, x_vec, u_vec, linearized_equations_of_motion)
     transfer_functions = [sp.expand(tf) for tf in transfer_functions]
     print('\nTransfer Functions (in Primed Variables):')
     for var, tf in zip(X_vec, transfer_functions):
-        print(to_string(var), '=', to_string(tf))
+        print(to_string(sp.Eq(var, tf)))
 
     A, B = get_matrix_equations_of_motion(x_vec, u_vec, linearized_equations_of_motion)
-    print('\nA (in Primed Variables):\n', A, '\nB (in Primed Variables):\n', B)
+    print('\nA (in Primed Variables):\n', to_string(A), '\nB (in Primed Variables):\n', to_string(B))
 
     A = substitute_constants(A).astype(float)
     B = substitute_constants(B).astype(float)
@@ -235,7 +221,7 @@ def build_and_test_controller(constants, physics_func=get_cart_pole_physics, ope
                                          for i, t_ in enumerate(t_vals)])))
 
     for i, x in enumerate(x_vec):
-        plt.plot(t_vals, state_vals[i, :], label=to_string(x, latex=True))
+        plt.plot(t_vals, state_vals[i, :], label=to_string(x))
 
 
 def main():
