@@ -213,10 +213,6 @@ def test_controller(x_vec, u_vec, equations_of_motion, K, x_r_func=None, x_0=Non
     return result.t, result.y
 
 
-def evaluate_controller(x_vec, u_vec, equations_of_motion, K, x_r_func=None, x_0=None, t_f=10):
-    pass
-
-
 def build_and_test_controller(constants, physics_func=get_cart_pole_physics, operating_point=None, Q=None, R=None,
                               x_r_func=None, x_0=None, t_f=10):
     """
