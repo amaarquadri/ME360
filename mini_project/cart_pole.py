@@ -157,10 +157,10 @@ def linear_quadratic_regulator(A, B, Q, R):
     Returns K such that optimal control is u = -Kx
     """
     # first, try to solve the Ricatti equation
-    S = solve_continuous_are(A, B, Q, R)
+    P = solve_continuous_are(A, B, Q, R)
 
     # compute the LQR gain
-    K = np.linalg.multi_dot([np.linalg.inv(R), B.T, S])
+    K = np.linalg.multi_dot([np.linalg.inv(R), B.T, P])
     return K
 
 
@@ -168,7 +168,7 @@ def analyze_controller(s, X_vec, X_r_vec, k_pd_mat, controller_transfer_function
     controller_transfer_functions = [tf.subs(zip(k_pd_mat.flatten(), K.flatten()))
                                      for tf in controller_transfer_functions]
 
-    for i, X_r in enumerate(X_r_vec):
+    for X_r in X_r_vec:
         print(f'\nSetting all but {X_r} to zero:')
         # set all others in X_r_vec to zero
         tfs = [sp.simplify(tf.subs([(X_r_, 0) for X_r_ in X_r_vec if X_r_ is not X_r]) / X_r)
@@ -179,11 +179,13 @@ def analyze_controller(s, X_vec, X_r_vec, k_pd_mat, controller_transfer_function
             poles = sp.roots(denominator, s)
             gain = get_gain(s, tf, zeros, poles)
 
-            zeros_description = ', '.join([str(zero) if multiplicity == 1 else f'{zero} (x{multiplicity})'
-                                           for zero, multiplicity in zeros.items()])
-            poles_description = ', '.join([str(pole) if multiplicity == 1 else f'{pole} (x{multiplicity})'
-                                           for pole, multiplicity in poles.items()])
-            print(f'{X}/{X_r}: Gain: {gain}, Poles: {poles_description}, Zeros: {zeros_description}')
+            zeros_description = ', '.join(
+                [str(zero.evalf(6)) if multiplicity == 1 else f'{zero.evalf(6)} (x{multiplicity})'
+                 for zero, multiplicity in zeros.items()])
+            poles_description = ', '.join(
+                [str(pole.evalf(6)) if multiplicity == 1 else f'{pole.evalf(6)} (x{multiplicity})'
+                 for pole, multiplicity in poles.items()])
+            print(f'{X}/{X_r}: Gain: {gain.evalf(6)}, Poles: {poles_description}, Zeros: {zeros_description}')
 
 
 def test_controller(x_vec, u_vec, equations_of_motion, K, x_r_func=None, x_0=None, t_f=10):
