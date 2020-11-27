@@ -9,13 +9,19 @@ from sympy.physics.vector.printing import vlatex
 use('TkAgg')
 
 
-def to_string(expression):
-    return vlatex(expression) \
-        .replace(r'\operatorname{Theta}', r'\Theta') \
-        .replace(r'p f x', r'px') \
-        .replace(r'd f x', r'dx') \
-        .replace(r'p f \theta', r'pt') \
-        .replace(r'd f \theta', r'dt')
+def to_string(expression, to_word=True):
+    text = vlatex(expression).replace(r'\operatorname{Theta}', r'\Theta')
+    if to_word:
+        text = text.replace(r'p f x', r'p,x') \
+            .replace(r'd f x', r'd,x') \
+            .replace(r'p f \theta', r'p,\theta') \
+            .replace(r'd f \theta', r'd,\theta')
+    else:
+        text = text.replace(r'p f x', r'px') \
+            .replace(r'd f x', r'dx') \
+            .replace(r'p f \theta', r'pt') \
+            .replace(r'd f \theta', r'dt')
+    return text
 
 
 def get_gain(s, ratio, zeros, poles, epsilon=0.1):
@@ -190,7 +196,7 @@ def analyze_controller(s, X_vec, X_r_vec, k_pd_mat, controller_transfer_function
             poles_description = ', '.join(
                 [str(pole.evalf(6)) if multiplicity == 1 else f'{pole.evalf(6)} (x{multiplicity})'
                  for pole, multiplicity in poles.items()])
-            routh_conditions_description = '\n'.join([to_string(condition.evalf(6)) for condition in routh_conditions])
+            routh_conditions_description = '\n'.join([to_string(condition.evalf(3)) for condition in routh_conditions])
             print(f'{X}/{X_r}: Routh Conditions:\n{routh_conditions_description}\nGain: {gain.evalf(6)}\n'
                   f'Poles: {poles_description}\nZeros: {zeros_description}\n\n')
 
@@ -217,7 +223,7 @@ def test_controller(x_vec, u_vec, equations_of_motion, K, x_r_func=None, x_0=Non
 
     result = solve_ivp(state_derivative, (0, t_f), x_0, method='RK45', rtol=1e-6)
     # noinspection PyUnresolvedReferences
-    return result.t, result.y
+    return result.t, result.y, x_r_func
 
 
 def build_and_test_controller(constants, physics_func=get_cart_pole_physics, operating_point=None, Q=None, R=None,
@@ -282,7 +288,8 @@ def build_and_test_controller(constants, physics_func=get_cart_pole_physics, ope
     analyze_controller(s, X_vec, X_r_vec, k_pd_mat, substitute_constants(control_transfer_functions), K)
 
     equations_of_motion = [substitute_constants(eq) for eq in equations_of_motion]
-    t_vals, state_vals = test_controller(x_vec, u_vec, equations_of_motion, K, x_r_func=x_r_func, x_0=x_0, t_f=t_f)
+    t_vals, state_vals, x_r_func = test_controller(x_vec, u_vec, equations_of_motion, K,
+                                                   x_r_func=x_r_func, x_0=x_0, t_f=t_f)
 
     forces = [np.dot(K, x_r_func(t_) - state_vals[:, i])[0] for i, t_ in enumerate(t_vals)]
     powers = [force * velocity for force, velocity in zip(forces, state_vals[1, :])]
