@@ -1,5 +1,6 @@
 import numpy as np
 import sympy as sp
+from tbcontrol.symbolic import routh
 from scipy.linalg import solve_continuous_are
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
@@ -10,7 +11,11 @@ use('TkAgg')
 
 def to_string(expression):
     return vlatex(expression) \
-        .replace(r'\operatorname{Theta}', r'\Theta')
+        .replace(r'\operatorname{Theta}', r'\Theta') \
+        .replace(r'p f x', r'px') \
+        .replace(r'd f x', r'dx') \
+        .replace(r'p f \theta', r'pt') \
+        .replace(r'd f \theta', r'dt')
 
 
 def get_gain(s, ratio, zeros, poles, epsilon=0.1):
@@ -165,19 +170,19 @@ def linear_quadratic_regulator(A, B, Q, R):
 
 
 def analyze_controller(s, X_vec, X_r_vec, k_pd_mat, controller_transfer_functions, K):
-    controller_transfer_functions = [tf.subs(zip(k_pd_mat.flatten(), K.flatten()))
-                                     for tf in controller_transfer_functions]
-
     for X_r in X_r_vec:
-        print(f'\nSetting all but {X_r} to zero:')
         # set all others in X_r_vec to zero
         tfs = [sp.simplify(tf.subs([(X_r_, 0) for X_r_ in X_r_vec if X_r_ is not X_r]) / X_r)
                for tf in controller_transfer_functions]
         for X, tf in zip(X_vec, tfs):
             numerator, denominator = tf.as_numer_denom()
-            zeros = sp.roots(numerator, s)
-            poles = sp.roots(denominator, s)
-            gain = get_gain(s, tf, zeros, poles)
+
+            routh_table = np.array(routh(sp.Poly(denominator, s)))
+            routh_conditions = routh_table[:, 0]
+
+            zeros = sp.roots(numerator.subs(zip(k_pd_mat.flatten(), K.flatten())), s)
+            poles = sp.roots(denominator.subs(zip(k_pd_mat.flatten(), K.flatten())), s)
+            gain = get_gain(s, tf.subs(zip(k_pd_mat.flatten(), K.flatten())), zeros, poles)
 
             zeros_description = ', '.join(
                 [str(zero.evalf(6)) if multiplicity == 1 else f'{zero.evalf(6)} (x{multiplicity})'
@@ -185,7 +190,9 @@ def analyze_controller(s, X_vec, X_r_vec, k_pd_mat, controller_transfer_function
             poles_description = ', '.join(
                 [str(pole.evalf(6)) if multiplicity == 1 else f'{pole.evalf(6)} (x{multiplicity})'
                  for pole, multiplicity in poles.items()])
-            print(f'{X}/{X_r}: Gain: {gain.evalf(6)}, Poles: {poles_description}, Zeros: {zeros_description}')
+            routh_conditions_description = '\n'.join([to_string(condition.evalf(6)) for condition in routh_conditions])
+            print(f'{X}/{X_r}: Routh Conditions:\n{routh_conditions_description}\nGain: {gain.evalf(6)}\n'
+                  f'Poles: {poles_description}\nZeros: {zeros_description}\n\n')
 
 
 def test_controller(x_vec, u_vec, equations_of_motion, K, x_r_func=None, x_0=None, t_f=10):
@@ -277,11 +284,14 @@ def build_and_test_controller(constants, physics_func=get_cart_pole_physics, ope
     equations_of_motion = [substitute_constants(eq) for eq in equations_of_motion]
     t_vals, state_vals = test_controller(x_vec, u_vec, equations_of_motion, K, x_r_func=x_r_func, x_0=x_0, t_f=t_f)
 
-    print('\nMax Force:', np.max(np.abs([np.dot(K, x_r_func(t_) - state_vals[:, i])[0]
-                                         for i, t_ in enumerate(t_vals)])))
+    forces = [np.dot(K, x_r_func(t_) - state_vals[:, i])[0] for i, t_ in enumerate(t_vals)]
+    powers = [force * velocity for force, velocity in zip(forces, state_vals[1, :])]
+    print('\nMax Force:', np.max(np.abs(forces)))
+    print('Max Power Draw:', np.max(np.abs(powers)))
+    print('Mean Power Draw:', np.mean(np.abs(powers)))
 
     for i, x in enumerate(x_vec):
-        plt.plot(t_vals, state_vals[i, :], label=to_string(x))
+        plt.plot(t_vals, state_vals[i, :], label=f'${to_string(x)}$')
 
 
 def main():
