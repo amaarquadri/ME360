@@ -319,7 +319,7 @@ def main():
     plt.ylabel(r'Position (m), Velocity (m/s), $\theta$ (rad), $\omega$ (rad/s)')
     plt.title(r'Recovery from x Perturbation of 15 Meters')
     plt.legend()
-    # plt.savefig('x_perturbation.png')
+    # plt.savefig('theta_perturbation.png')
     plt.show()
 
 
