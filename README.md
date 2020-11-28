@@ -6,6 +6,8 @@ The controller was created programmatically by:
 - Creating a PD controller using the linear quadratic regulator algorithm
 - Testing the controller on the original (non-linear) system under various initial conditions
 
+You can read the full paper ![here](/mini_project/Final%20Report.pdf).
+
 The following graphs show some of the results:
 
 ![Theta Perturbation](/mini_project/theta_perturbation.png)  
