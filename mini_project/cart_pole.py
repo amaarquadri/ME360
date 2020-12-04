@@ -68,7 +68,42 @@ def get_cart_pole_physics(constants):
     x_vec = np.array([x, sp.diff(x, t), theta, sp.diff(theta, t)])
     u_vec = np.array([f])
 
-    return t, x_vec, u_vec, L, [f_x_external, f_theta_external]
+    # observation matrix
+    C = np.array([1, 0, 0, 0])
+
+    return t, x_vec, u_vec, L, [f_x_external, f_theta_external], C
+
+
+def get_bicopter_physics(constants):
+    m, L, g = constants
+
+    t = sp.symbols('t')
+
+    # define state variables
+    x = sp.Function('x')(t)
+    y = sp.Function('y')(t)
+    theta = sp.Function('theta')(t)
+
+    # define control variables
+    f_L = sp.Function('f_L')(t)
+    f_R = sp.Function('f_R')(t)
+
+    I_com = m * L ** 2 / 12
+    KE = m * (sp.diff(x, t) ** 2 + sp.diff(y, t) ** 2) / 2 + (I_com * sp.diff(theta, t) ** 2) / 2
+    PE = m * g * y
+    L = sp.simplify(KE - PE)
+
+    f_x_external = (f_R + f_L) * sp.cos(theta)
+    f_y_external = (f_R + f_L) * sp.sin(theta)
+    f_theta_external = (f_R - f_L) * L
+
+    x_vec = np.array([x, sp.diff(x, t), y, sp.diff(y, t), theta, sp.diff(theta, t)])
+    u_vec = np.array([f_R, f_L])
+
+    # observation matrix
+    C = np.array([1, 0, 1, 0, 1, 0])
+
+    return t, x_vec, u_vec, L, [f_x_external, f_y_external, f_theta_external], C
 
 
 def get_equations_of_motion(t, x_vec, L, F_external_vec):
@@ -226,7 +261,8 @@ def test_controller(x_vec, u_vec, equations_of_motion, K, x_r_func=None, x_0=Non
     return result.t, result.y, x_r_func
 
 
-def build_and_test_controller(constants, physics_func=get_cart_pole_physics, operating_point=None, Q=None, R=None,
+def build_and_test_controller(constants, physics_func=get_cart_pole_physics, operating_point=None,
+                              Q=None, R=None, V=None, W=None,
                               x_r_func=None, x_0=None, t_f=10):
     """
     Generates
@@ -237,6 +273,8 @@ def build_and_test_controller(constants, physics_func=get_cart_pole_physics, ope
     :param operating_point:
     :param Q:
     :param R:
+    :param V:
+    :param W:
     :param x_r_func:
     :param x_0:
     :param t_f:
@@ -246,7 +284,7 @@ def build_and_test_controller(constants, physics_func=get_cart_pole_physics, ope
     def substitute_constants(expression):
         return np.vectorize(lambda v: v.subs(constants))(expression)
 
-    t, x_vec, u_vec, lagrangian, F_external_vec = physics_func(constants.keys())
+    t, x_vec, u_vec, lagrangian, F_external_vec, C = physics_func(constants.keys())
     print('Lagrangian:', to_string(lagrangian))
     print('\nExternal Forces:', to_string(F_external_vec))
 
@@ -278,12 +316,19 @@ def build_and_test_controller(constants, physics_func=get_cart_pole_physics, ope
 
     A = substitute_constants(A).astype(float)
     B = substitute_constants(B).astype(float)
+    # TODO: what if C depends on constants and needs substitution
     if Q is None:
         Q = np.identity(len(x_vec))
     if R is None:
         R = np.identity(len(u_vec))
+    if V is None:
+        V = np.identity(len([]))
+    if W is None:
+        W = np.identity(len([]))
     K = linear_quadratic_regulator(A, B, Q, R)
     print('K:\n', K)
+    L = linear_quadratic_regulator(A.T, C.T, V, W)
+    print('L:\n', L)
 
     analyze_controller(s, X_vec, X_r_vec, k_pd_mat, substitute_constants(control_transfer_functions), K)
 
@@ -301,7 +346,7 @@ def build_and_test_controller(constants, physics_func=get_cart_pole_physics, ope
         plt.plot(t_vals, state_vals[i, :], label=f'${to_string(x)}$')
 
 
-def main():
+def main1():
     M, m, L, b, g = sp.symbols('M, m, L, b, g')
     constants = {
         M: 1.994376,
@@ -323,5 +368,9 @@ def main():
     plt.show()
 
 
+def main2():
+    pass
+
+
 if __name__ == '__main__':
-    main()
+    main1()
