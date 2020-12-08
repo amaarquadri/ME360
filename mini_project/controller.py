@@ -67,14 +67,17 @@ class PhysicsSystem(ABC):
         pass
 
     def apply_substitutions(self, expression):
-        if type(expression) is np.ndarray:
-            result = self.numpy_substitutor(expression)
+        if isinstance(expression, np.ndarray):
+            result = np.array([self.apply_substitutions(v) for v in expression])
             try:
                 return result.astype(float)
             except TypeError:
-                return result
-        else:
+                pass
+            return result
+        elif isinstance(expression, sp.core.Expr):
             return expression.subs(self.constants)
+        else:
+            return expression
 
 
 class CartPole(PhysicsSystem):
