@@ -20,7 +20,7 @@ def linear_quadratic_regulator(A, B, Q, R):
     Minimizing integral (x.T*Q*x + u.T*R*u) dt from 0 to infinity
     Returns K such that optimal control is u = -Kx
     """
-    # first, try to solve the ricatti equation
+    # first, try to solve the Ricatti equation
     S = solve_continuous_are(A, B, Q, R)
 
     # compute the LQR gain
