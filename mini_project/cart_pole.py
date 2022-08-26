@@ -49,19 +49,6 @@ def get_cart_pole_physics(constants):
     # define control variables
     f = sp.Function('f')(t)
 
-    x_rel = -L * sp.sin(theta)
-    v_x_rel = sp.diff(x_rel, t)
-    v_x_pole = sp.diff(x, t) + v_x_rel
-
-    y_rel = L * sp.cos(theta)
-    v_y_pole = sp.diff(y_rel, t)  # relative and absolute velocities are the same
-
-    KE_cart = (M * sp.diff(x, t) ** 2) / 2
-    KE_pole = (m * v_x_pole ** 2) / 2 + (m * v_y_pole ** 2) / 2
-    KE = KE_cart + KE_pole
-    PE = m * g * L * sp.cos(theta)
-    L = sp.simplify(KE - PE)
-
     f_x_external = f - b * sp.diff(x, t)  # dissipative and external forces for the x direction
     f_theta_external = 0
 
@@ -236,9 +223,9 @@ def analyze_controller(s, X_vec, X_r_vec, k_pd_mat, controller_transfer_function
                   f'Poles: {poles_description}\nZeros: {zeros_description}\n\n')
 
 
-def test_controller(x_vec, u_vec, equations_of_motion, K, x_r_func=None, x_0=None, t_f=10):
+def test_controller(x_vec, u_vec, equations_of_motion, K, L, x_r_func=None, x_0=None, t_f=10):
     """
-    A, B, K, and x_0 must be numpy arrays and x_r_func must be a function that returns a numpy array.
+    A, B, K, L, and x_0 must be numpy arrays and x_r_func must be a function that returns a numpy array.
     """
     if x_0 is None:
         x_0 = np.zeros(len(equations_of_motion))
@@ -252,11 +239,14 @@ def test_controller(x_vec, u_vec, equations_of_motion, K, x_r_func=None, x_0=Non
 
     equations_of_motion = [sp.lambdify([x_vec, u_vec], eq) for eq in equations_of_motion]
 
-    def state_derivative(t, x_vec_):
+    def state_derivative(t, x_vec_combined):
+        mid_point = len(x_vec_combined) // 2
+        x_vec_ = x_vec_combined[:mid_point]
+        x_hat = x_vec_combined
         u_vec_ = np.dot(K, x_r_func(t) - x_vec_)
         return np.array([eq(x_vec_, u_vec_) for eq in equations_of_motion])
 
-    result = solve_ivp(state_derivative, (0, t_f), x_0, method='RK45', rtol=1e-6)
+    result = solve_ivp(state_derivative, (0, t_f), np.concatenate((x_0, np.zeros_like(x_0))), method='RK45', rtol=1e-6)
     # noinspection PyUnresolvedReferences
     return result.t, result.y, x_r_func
 

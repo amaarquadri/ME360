@@ -51,8 +51,7 @@ class PhysicsSystem(ABC):
         self.V = V if V is not None else np.identity(2 * self.x_dim)  # model noise
         self.W = W if W is not None else np.identity(self.y_dim)  # measurement noise
 
-        self.numpy_substitutor = np.vectorize(lambda v: v if isinstance(v, float) or isinstance(v, int) else
-                                              v.subs(self.constants))
+        self.numpy_substitutor = np.vectorize(lambda v: v.subs(self.constants))
 
     @abstractmethod
     def create_x_and_u(self):
@@ -117,6 +116,40 @@ class CartPole(PhysicsSystem):
         f_x_external = f - b * sp.diff(x, self.t)  # dissipative and external forces for the x direction
         f_theta_external = 0
         return np.array([f_x_external, f_theta_external])
+
+
+class Rocket(PhysicsSystem):
+    def __init__(self, m=1, L_t=1, L_d=1, b=1, g=9.81, f=10, operating_point=None,
+                 C=None, Q=None, R=None, V=None, W=None):
+        constants = dict(zip(sp.symbols('m, L_t, L_d, b, g, f'), [m, L_t, L_d, b, g, f]))
+        super().__init__(constants, operating_point, C, Q, R, V, W)
+
+    def create_x_and_u(self):
+        x = sp.Function('x')(self.t)
+        y = sp.Function('y')(self.t)
+        # define theta = 0 at positive y axis, increasing clockwise
+        theta = sp.Function('theta')(self.t)
+        # define alpha = 0 for aligned with rocket, increasing clockwise
+        alpha = sp.Function('alpha')(self.t)
+        return np.array([x, y, theta]), np.array([alpha])
+
+    def create_lagrangian(self):
+        m, L, g, _ = self.constants.keys()
+        x, y, theta = self.x
+        I = m * L ** 2 / 12
+        KE = (m / 2) * (sp.diff(x, self.t) ** 2 + sp.diff(y, self.t) ** 2) + (I / 2) * sp.diff(theta, self.t) ** 2
+        PE = m * g * y
+        L = KE - PE
+        return L
+
+    def create_f_external(self):
+        _, L, _, f = self.constants.keys()
+        _, _, theta = self.x
+        alpha = self.u
+        f_x = f * sp.cos(theta + alpha)
+        f_y = f * sp.sin(theta + alpha)
+        T = -f * sp.sin(alpha) * (L / 2)
+        return np.array([f_x, f_y, T])
 
 
 class Controller:
@@ -339,17 +372,17 @@ class Controller:
                 print(f'{X}/{X_r}: Routh Conditions:\n{routh_conditions_description}\nGain: {gain.evalf(6)}\n'
                       f'Poles: {poles_description}\nZeros: {zeros_description}\n\n')
 
-    def test_controller(self, x_r_func=None, state_0=None, t_f=10):
+    def test_controller(self, x_r_func=None, state_0=None, t_f=10, estimator=False):
         """
         A, B, K, L, and x_0 must be numpy arrays and x_r_func must be a function that returns a numpy array.
         """
         if self.K is None:
             self.get_lqr_gain()
-        if self.L is None:
+        if estimator and (self.L is None):
             self.get_lqe_gain()
 
         if state_0 is None:
-            state_0 = np.zeros(self.phys.x_dim + self.phys.y_dim)
+            state_0 = np.zeros(self.phys.x_dim + self.phys.y_dim) if estimator else np.zeros(self.phys.x_dim)
         if x_r_func is None:
             # use step input for first variable in x_r
             target = np.zeros(self.phys.x_dim)
@@ -361,7 +394,7 @@ class Controller:
         A_num = self.phys.apply_substitutions(self.A)
         B_num = self.phys.apply_substitutions(self.B)
 
-        def state_derivative(t, state):
+        def state_derivative_estimator(t, state):
             print(t)
             mid_point = len(state) // 2
             x = state[:mid_point]
@@ -377,7 +410,12 @@ class Controller:
 
             return np.concatenate((x_dot, x_hat_dot))
 
-        result = solve_ivp(state_derivative, (0, t_f), state_0, method='RK45', rtol=1e-3)  # , atol=1, max_step=0.01)
+        def state_derivative_no_estimator(t, state):
+            u = np.dot(self.K, x_r_func(t) - state)
+            return self.equations_of_motion_func(state, u)
+
+        result = solve_ivp(state_derivative_estimator if estimator else state_derivative_no_estimator,
+                           (0, t_f), state_0, method='RK45', rtol=1e-3)
         # noinspection PyUnresolvedReferences
         return result.t, result.y
 
@@ -440,10 +478,10 @@ def test_system(physics_system, x_r_func=None, state_0=None, t_f=10):
     print('K:\n', controller.get_lqr_gain())
     print('L:\n', controller.get_lqe_gain())
 
-    controller.analyze_controller()
+    # controller.analyze_controller()
 
-    t_vals, state_vals = controller.test_controller(x_r_func, state_0, t_f)
-    forces = [np.dot(controller.K, x_r_func(t_) - state_vals[2 * physics_system.x_dim:, i])[0]
+    t_vals, state_vals = controller.test_controller(x_r_func, state_0, t_f, estimator=False)
+    forces = [np.dot(controller.K, x_r_func(t_) - state_vals[:, i])[0]
               for i, t_ in enumerate(t_vals)]
     powers = [force * velocity for force, velocity in zip(forces, state_vals[1, :])]
     print('\nMax Force:', np.max(np.abs(forces)))
@@ -458,6 +496,27 @@ def main():
     cart_pole = CartPole(M=1.994376, m=0.105425, L=0.110996, b=1.6359, g=9.81,
                               C=np.identity(4),
                               operating_point=None, Q=np.diag([10, 20, 100, 50]), R=np.array([[1]]))
+    t_vals, state_vals = test_system(cart_pole, x_r_func=lambda t: [3, 0, 0, 0],
+                                     state_0=np.array([0, 0, 0, 0]))
+    for i, x in enumerate(cart_pole.x):
+        plt.plot(t_vals, state_vals[2 * i, :], label=f'${to_string(x)}$')
+    # for i, x in enumerate(cart_pole.x):
+    #     plt.plot(t_vals, state_vals[2 * (cart_pole.x_dim + i), :], label=f'$\\hat{{{to_string(x)}}}$')
+
+    # plt.plot(t_vals, x_r_func(t_vals)[0], label=r'$x_{r}$')
+    plt.xlabel('Time (s)')
+    plt.ylabel(r'Position (m), Velocity (m/s), $\theta$ (rad), $\omega$ (rad/s)')
+    plt.title(r'Recovery from x Perturbation of 15 Meters')
+    plt.legend()
+    # plt.savefig('theta_perturbation.png')
+    plt.show()
+
+
+def main2():
+    # operating_point = {x_vec[2]: sp.pi}
+    cart_pole = Rocket(m=0.105425, L=0.110996, g=9.81,
+                         C=np.identity(4),
+                         operating_point=None, Q=np.diag([10, 20, 100, 50]), R=np.array([[1]]))
     t_vals, state_vals = test_system(cart_pole, x_r_func=lambda t: [0.1, 0, 0, 0],
                                      state_0=np.array([0, 0, 0, 0,
                                                        0, 0, 0, 0]))
